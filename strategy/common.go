@@ -1,6 +1,9 @@
 package strategy
 
-import "errors"
+import (
+	"errors"
+	"math"
+)
 
 var (
 	ErrInvalidMaxBytes = errors.New("MaxBytes set error")
@@ -13,3 +16,15 @@ var (
 type Value interface {
 	Len() int
 }
+
+type String string
+
+func (s String) Len() int {
+	return len(s)
+}
+
+// Const Value Just For Testing
+const (
+	MaxCacheSize = int64(math.MaxInt32)
+	DefaultLRUK  = 2
+)

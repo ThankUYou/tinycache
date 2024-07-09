@@ -9,9 +9,18 @@ type fifoEntry struct {
 
 type FIFOCache struct {
 	maxBytes int64
-	nBytes   int64 // used space
+	nBytes   int64
 	ll       *list.List
 	cache    map[string]*list.Element
+}
+
+func NewFIFOCache(maxBytes int64) *FIFOCache {
+	return &FIFOCache{
+		maxBytes: maxBytes,
+		nBytes:   0,
+		ll:       list.New(),
+		cache:    make(map[string]*list.Element),
+	}
 }
 
 func (fifo *FIFOCache) Set(key string, value Value) {
