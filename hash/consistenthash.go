@@ -11,7 +11,7 @@ type Hash func(data []byte) uint32 //便于选择不同的哈希算法
 type Map struct {
 	hash     Hash           //一致性哈希的哈希算法
 	replicas int            //虚拟节点倍数
-	keys     []int          // 哈希环
+	keys     []int          //哈希环
 	hashmap  map[int]string //虚拟节点和真实节点的映射关系
 }
 
