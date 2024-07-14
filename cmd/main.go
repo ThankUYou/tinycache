@@ -18,7 +18,7 @@ var db = map[string]string{
 // use HTTP
 
 func createGroup() *tinycache.Group {
-	return tinycache.NewGroup("scores", 2<<10, tinycache.GetterFunc(
+	return tinycache.NewGroup("scores", 2<<10, "lru", tinycache.GetterFunc(
 		func(key string) ([]byte, error) {
 			log.Println("[SlowDB] search key", key)
 			if v, ok := db[key]; ok {

@@ -1,152 +1,81 @@
 package tinycache
 
 import (
-	"math"
 	"sync"
-	"tinycache/strategy"
+	"time"
+	"tinycache/strategy/lfu"
+	"tinycache/strategy/lru"
 )
 
-// 缓存策略
-const (
-	TYPE_FIFO = "fifo"
-	TYPE_LRU  = "lru"
-	TYPE_LRUK = "lruk"
-	TYPE_LFU  = "lfu"
-	TYPE_ARC  = "arc"
-	TYPE_2Q   = "2q"
-)
-
-// Cache 接口，支持多种缓存策略
-type Cache interface {
-
-	// Set or Update the key-value pair
-	Set(key string, value strategy.Value)
-
-	// Get returns the value for the specific key-value pair
-	Get(key string) (strategy.Value, error)
-
-	// Remove removes the specific key from the cache if the key is present
-	Remove(key string) error
-
-	// Purge is used to completely clear the cache
-	Purge()
-
-	// Size returns the space used by the cache
-	Size() int64
-
-	// MaxSize returns the maxSize of the cache
-	MaxSize() int64
+// BaseCache 是一个接口，定义了基本的缓存操作方法。它包含了两个方法：add 和 get，用于向缓存中添加数据和从缓存中获取数据。
+type BaseCache interface {
+	add(key string, value ByteView)
+	get(key string) (value ByteView, ok bool)
 }
 
-// mainCache 并发安全的cache
-type mainCache struct {
-	mu    sync.RWMutex
-	cache Cache
-	//cacheBytes int64
-	cacheType string
-	OnEvicted func(key string, value strategy.Value)
+// LRUcache 的实现非常简单，实例化 lru，封装 get 和 add 方法。
+type LRUcache struct {
+	mu         sync.RWMutex // 读写锁
+	lru        *lru.LRUCache
+	cacheBytes int64         // lru的maxBytes
+	ttl        time.Duration // lru的defaultTTL
 }
 
-type Option struct {
-	cacheType string
-	maxBytes  int64
-	k         int
-	OnEvicted func(key string, value strategy.Value)
-}
-
-var DefaultOption = Option{
-	cacheType: "lru",
-	maxBytes:  int64(math.MaxInt32),
-	k:         strategy.DefaultLRUK,
-	OnEvicted: nil,
-}
-
-type ModOption func(option *Option)
-
-func New(opts ...Option) *mainCache {
-	return NewByOption(DefaultOption.cacheType, DefaultOption.maxBytes)
-}
-
-func NewByOption(cacheType string, maxBytes int64, opts ...Option) *mainCache {
-	option := DefaultOption
-	option.cacheType = cacheType
-
-	var cache Cache
-	switch cacheType {
-	case TYPE_LRU:
-		cache = strategy.NewLRUCache(maxBytes)
-	case TYPE_FIFO:
-		cache = strategy.NewFIFOCache(maxBytes)
-	case TYPE_LFU:
-		cache = strategy.NewLFUCache(maxBytes)
-	case TYPE_LRUK:
-		cache = strategy.NewLRUKCache(option.k, maxBytes)
-	default:
-		cache = strategy.NewLRUCache(maxBytes)
+// add 函数用于向缓存中添加数据
+func (c *LRUcache) add(key string, value ByteView) {
+	c.mu.Lock() //写锁
+	defer c.mu.Unlock()
+	if c.lru == nil {
+		c.lru = lru.New(c.cacheBytes, nil, c.ttl)
 	}
-
-	return &mainCache{
-		cache:     cache,
-		cacheType: cacheType,
-	}
+	/*
+		判断c.lru 是否为 nil，如果等于 nil 再创建实例。
+		这种方法称之为延迟初始化(Lazy Initialization)，一个对象的延迟初始化意味着该对象的创建将会延迟至第一次使用该对象时。
+		主要用于提高性能，并减少程序内存要求。
+	.*/
+	c.lru.Add(key, value, c.ttl)
 }
 
-func (m *mainCache) add(key string, value ByteView) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cache == nil {
-		m.cache = New(DefaultOption)
-	}
-	m.cache.Set(key, value)
-}
-
-func (m *mainCache) get(key string) (value ByteView, ok bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cache == nil {
+// get 函数用于从缓存中获取数据
+func (c *LRUcache) get(key string) (value ByteView, ok bool) {
+	c.mu.RLock() //读锁
+	defer c.mu.RUnlock()
+	if c.lru == nil {
 		return
 	}
-	if v, err := m.cache.Get(key); err == nil {
-		return v.(ByteView), true
+	if v, ok := c.lru.Get(key); ok {
+		return v.(ByteView), ok
 	}
 	return
 }
 
-// Set 支持并发的缓存写入
-func (m *mainCache) Set(key string, value strategy.Value) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.cache.Set(key, value)
+// LFUcache 同理于LRUcache
+type LFUcache struct {
+	mu         sync.RWMutex
+	lfu        *lfu.LFUCache
+	cacheBytes int64
+	ttl        time.Duration
 }
 
-// Get 支持并发的缓存读取
-func (m *mainCache) Get(key string) (strategy.Value, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.cache.Get(key)
+// add 函数用于向缓存中添加数据
+func (c *LFUcache) add(key string, value ByteView) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.lfu == nil {
+		c.lfu = lfu.New(c.cacheBytes, nil, c.ttl)
+	}
+	c.lfu.Add(key, value, c.ttl)
 }
 
-// Remove 支持并发的缓存删除
-func (m *mainCache) Remove(key string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.cache.Remove(key)
-}
-
-func (m *mainCache) Purge() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.cache.Purge()
-}
-
-func (m *mainCache) Size() int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.cache.Size()
-}
-
-func (m *mainCache) MaxSize() int64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.cache.MaxSize()
+// get 函数用于从缓存中获取数据
+func (c *LFUcache) get(key string) (value ByteView, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.lfu == nil {
+		return
+	}
+	if v, ok := c.lfu.Get(key); ok {
+		return v.(ByteView), ok
+	}
+	return
 }
