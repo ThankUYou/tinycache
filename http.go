@@ -13,7 +13,7 @@ import (
 	pb "tinycache/tinycachepb"
 )
 
-const defaultPath = "/_geecache/"
+const defaultPath = "/_tinycache/"
 const defaultReplicas = 50
 
 type HTTPPOOL struct {
